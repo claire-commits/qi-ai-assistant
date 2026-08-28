@@ -8,6 +8,7 @@ import random
 import re
 import sys
 import threading
+import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -178,8 +179,12 @@ class Assistant:
             else:
                 if fallback_voice:
                     engine.setProperty("voice", fallback_voice)
-            engine.say(text)
-            engine.runAndWait()
+            segments = [segment.strip() for segment in text.splitlines() if segment.strip()]
+            for index, segment in enumerate(segments):
+                engine.say(segment)
+                engine.runAndWait()
+                if index < len(segments) - 1:
+                    time.sleep(1)
         except Exception:
             pass
         finally:
@@ -197,7 +202,7 @@ class Assistant:
 
     def speech_text(self, prompt: str, response: str) -> str:
         if "news" in prompt.lower() or "headlines" in prompt.lower():
-            response = " ".join(
+            response = "\n".join(
                 re.sub(r"^\s*[-*]\s*", "", line)
                 for line in response.splitlines()[1:]
             )
