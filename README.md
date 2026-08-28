@@ -88,6 +88,9 @@ You can say things like:
 - global news
 - remind me to call Mum at 2026-08-29 18:30
 - show reminders
+- my name is Claire
+- I live in Aberdeen
+- what do you know about me
 
 ## Step 5: use the local model
 
@@ -98,6 +101,8 @@ Weather questions use the Open-Meteo service for current conditions and do not r
 News questions use public RSS feeds and include links to the original headlines.
 
 Reminders are stored locally in `assistant_reminders.json` and use the format `YYYY-MM-DD HH:MM`. The desktop app checks for due reminders every 30 seconds.
+
+Personal details are stored locally in `assistant_profile.json`. You can say `my name is ...`, `I live in ...`, or `I work as ...`. Say `forget me` to clear the profile.
 
 If you do not provide a key, the assistant still works in local mode for simple built-in commands.
 

@@ -48,6 +48,44 @@ class MemoryStore:
         return "Saved notes:\n- " + "\n- ".join(self.notes)
 
 
+class ProfileStore:
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self.facts: dict[str, str] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if self.path.exists():
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    self.facts = {str(key): str(value) for key, value in data.items()}
+            except (json.JSONDecodeError, OSError):
+                self.facts = {}
+
+    def set_fact(self, key: str, value: str) -> str:
+        self.facts[key] = value.strip()
+        self.path.write_text(json.dumps(self.facts, indent=2), encoding="utf-8")
+        return f"I will remember that your {key} is {value.strip()}."
+
+    def summary(self) -> str:
+        if not self.facts:
+            return "I do not know any personal details about you yet."
+        return "What I know about you:\n" + "\n".join(
+            f"- {key}: {value}" for key, value in self.facts.items()
+        )
+
+    def context(self) -> str:
+        if not self.facts:
+            return "No personal profile details have been saved."
+        return "\n".join(f"- {key}: {value}" for key, value in self.facts.items())
+
+    def forget(self) -> str:
+        self.facts.clear()
+        self.path.write_text("{}", encoding="utf-8")
+        return "I have forgotten your saved personal details."
+
+
 class ReminderStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
@@ -106,10 +144,13 @@ class Assistant:
         self.name = name or os.getenv("QI_NAME", "Qi")
         self.voice_enabled = os.getenv("QI_VOICE_ENABLED", "false").lower() == "true"
         self.memory = MemoryStore(Path(__file__).with_name("assistant_memory.json"))
+        self.profile = ProfileStore(Path(__file__).with_name("assistant_profile.json"))
         self.reminders = ReminderStore(Path(__file__).with_name("assistant_reminders.json"))
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.client = self._build_client()
+        self._speech_engine = None
+        self._speech_lock = threading.Lock()
 
     def _build_client(self) -> OpenAI | None:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -123,6 +164,8 @@ class Assistant:
             import pyttsx3
 
             engine = pyttsx3.init()
+            with self._speech_lock:
+                self._speech_engine = engine
             preferred_voice = os.getenv("QI_VOICE_NAME", "Scottish").lower()
             fallback_voice = None
             for voice in engine.getProperty("voices"):
@@ -139,6 +182,26 @@ class Assistant:
             engine.runAndWait()
         except Exception:
             pass
+        finally:
+            with self._speech_lock:
+                self._speech_engine = None
+
+    def stop_speaking(self) -> None:
+        with self._speech_lock:
+            engine = self._speech_engine
+        if engine is not None:
+            try:
+                engine.stop()
+            except Exception:
+                pass
+
+    def speech_text(self, prompt: str, response: str) -> str:
+        if "news" in prompt.lower() or "headlines" in prompt.lower():
+            response = " ".join(
+                re.sub(r"^\s*[-*]\s*", "", line)
+                for line in response.splitlines()[1:]
+            )
+        return re.sub(r"https?://\S+", "", response).strip()
 
     def _calculate(self, expression: str) -> str:
         allowed_operators = {
@@ -222,9 +285,8 @@ class Assistant:
             headlines = []
             for item in root.findall("./channel/item")[:5]:
                 title = item.findtext("title")
-                link = item.findtext("link")
-                if title and link:
-                    headlines.append(f"- {title}\n  {link}")
+                if title:
+                    headlines.append(f"- {title}")
             if not headlines:
                 return f"I could not find any {label} headlines right now."
             return f"Latest {label} headlines:\n" + "\n".join(headlines)
@@ -241,6 +303,23 @@ class Assistant:
         except ValueError:
             return "I could not understand that date. Use YYYY-MM-DD HH:MM."
         return self.reminders.add(text, due_at)
+
+    def _profile_response(self, prompt: str) -> str:
+        match = re.match(r"my (name|location|city|job|work|favourite colour|favorite color) is (.+)$", prompt, re.IGNORECASE)
+        if match:
+            key, value = match.groups()
+            return self.profile.set_fact(key.lower(), value)
+        match = re.match(r"i live in (.+)$", prompt, re.IGNORECASE)
+        if match:
+            return self.profile.set_fact("location", match.group(1))
+        match = re.match(r"i work as (.+)$", prompt, re.IGNORECASE)
+        if match:
+            return self.profile.set_fact("job", match.group(1))
+        if prompt.lower() in {"what do you know about me", "what do you remember about me", "my profile"}:
+            return self.profile.summary()
+        if prompt.lower() in {"forget me", "forget what you know about me", "clear my profile"}:
+            return self.profile.forget()
+        return "Tell me a fact like: my name is Claire, or I live in Aberdeen."
 
     def _local_response(self, user_input: str) -> str:
         text = user_input.strip()
@@ -276,6 +355,12 @@ class Assistant:
 
         if lower.startswith("remind me to "):
             return self._reminder_response(text)
+
+        if (lower.startswith("my ") and " is " in lower) or lower.startswith("i live in ") or lower.startswith("i work as "):
+            return self._profile_response(text)
+
+        if lower in {"what do you know about me", "what do you remember about me", "my profile", "forget me", "forget what you know about me", "clear my profile"}:
+            return self._profile_response(text)
 
         if lower in {"reminders", "show reminders", "my reminders"}:
             return self.reminders.list_pending()
@@ -316,8 +401,10 @@ class Assistant:
             messages = [{
                 "role": "system",
                 "content": (
-                    "You are Qi, a helpful AI assistant. Keep responses concise, clear, and practical. "
-                    "If the user asks about coding, give direct, beginner-friendly guidance."
+                    f"You are {self.name}, a helpful AI assistant. Keep responses concise, clear, and practical. "
+                    "If the user asks about coding, give direct, beginner-friendly guidance. "
+                    "Use these user-provided personal details when relevant, and do not invent any others:\n"
+                    f"{self.profile.context()}"
                 ),
             }]
             if history:
@@ -476,6 +563,8 @@ def run_gui() -> None:
     entry.pack(side="left", fill="x", expand=True, ipady=7)
     send = ttk.Button(composer, text="Send", style="Send.TButton")
     send.pack(side="left", padx=(10, 0))
+    stop = ttk.Button(composer, text="Stop Morris", command=assistant.stop_speaking)
+    stop.pack(side="left", padx=(8, 0))
 
     def set_busy(value: bool) -> None:
         nonlocal busy
@@ -509,7 +598,7 @@ def run_gui() -> None:
         def work() -> None:
             response = assistant.respond(user_text, history)
             if speak_response:
-                assistant.speak(response)
+                assistant.speak(assistant.speech_text(user_text, response))
             root.after(0, complete_response, user_text, response)
 
         threading.Thread(target=work, daemon=True).start()
@@ -526,6 +615,7 @@ def run_gui() -> None:
     send.configure(command=send_message)
     entry.bind("<Return>", send_message)
     entry.focus_set()
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
     root.after(1_000, check_reminders)
     root.mainloop()
 
