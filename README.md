@@ -86,6 +86,8 @@ You can say things like:
 - what is the weather in Aberdeen today?
 - local news
 - global news
+- remind me to call Mum at 2026-08-29 18:30
+- show reminders
 
 ## Step 5: use the local model
 
@@ -94,6 +96,8 @@ Once Ollama is running and the model is installed, the assistant sends messages 
 Weather questions use the Open-Meteo service for current conditions and do not require an API key.
 
 News questions use public RSS feeds and include links to the original headlines.
+
+Reminders are stored locally in `assistant_reminders.json` and use the format `YYYY-MM-DD HH:MM`. The desktop app checks for due reminders every 30 seconds.
 
 If you do not provide a key, the assistant still works in local mode for simple built-in commands.
 
