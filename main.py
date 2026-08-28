@@ -8,6 +8,7 @@ import random
 import re
 import sys
 import threading
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -141,6 +142,29 @@ class Assistant:
         except (requests.RequestException, KeyError, TypeError, ValueError):
             return "I could not reach the live weather service right now."
 
+    def _news_response(self, local: bool = False) -> str:
+        feed_url = (
+            "https://news.google.com/rss/search?q=Aberdeen+Scotland&hl=en-GB&gl=GB&ceid=GB:en"
+            if local
+            else "https://feeds.bbci.co.uk/news/world/rss.xml"
+        )
+        label = "local Aberdeen and North East Scotland" if local else "global"
+        try:
+            response = requests.get(feed_url, timeout=10)
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            headlines = []
+            for item in root.findall("./channel/item")[:5]:
+                title = item.findtext("title")
+                link = item.findtext("link")
+                if title and link:
+                    headlines.append(f"- {title}\n  {link}")
+            if not headlines:
+                return f"I could not find any {label} headlines right now."
+            return f"Latest {label} headlines:\n" + "\n".join(headlines)
+        except (requests.RequestException, ET.ParseError):
+            return f"I could not reach the {label} news feed right now."
+
     def _local_response(self, user_input: str) -> str:
         text = user_input.strip()
         lower = text.lower()
@@ -237,6 +261,11 @@ class Assistant:
 
         if "weather" in lower:
             return self._weather_response(text)
+
+        if "news" in lower or "headlines" in lower:
+            return self._news_response(
+                local="local" in lower or "aberdeen" in lower or "scotland" in lower
+            )
 
         local_commands = [
             "remember ",
