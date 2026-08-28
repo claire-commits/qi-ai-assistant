@@ -11,6 +11,7 @@ This assistant can:
 - share short jokes
 - save notes locally in a JSON file
 - fetch current weather for a named location
+- show local Aberdeen or global news headlines
 - use a real OpenAI-compatible API when `OPENAI_API_KEY` is present
 
 ## Step 1: create your virtual environment
@@ -83,12 +84,16 @@ You can say things like:
 - show notes
 - how do I build a Python app?
 - what is the weather in Aberdeen today?
+- local news
+- global news
 
 ## Step 5: use the local model
 
 Once Ollama is running and the model is installed, the assistant sends messages to your local model. No cloud API key is required.
 
 Weather questions use the Open-Meteo service for current conditions and do not require an API key.
+
+News questions use public RSS feeds and include links to the original headlines.
 
 If you do not provide a key, the assistant still works in local mode for simple built-in commands.
 
