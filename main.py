@@ -69,6 +69,18 @@ class Assistant:
             import pyttsx3
 
             engine = pyttsx3.init()
+            preferred_voice = os.getenv("QI_VOICE_NAME", "Scottish").lower()
+            fallback_voice = None
+            for voice in engine.getProperty("voices"):
+                voice_details = f"{voice.id} {voice.name}".lower()
+                if preferred_voice in voice_details or "scotland" in voice_details:
+                    engine.setProperty("voice", voice.id)
+                    break
+                if fallback_voice is None and "great britain" in voice_details:
+                    fallback_voice = voice.id
+            else:
+                if fallback_voice:
+                    engine.setProperty("voice", fallback_voice)
             engine.say(text)
             engine.runAndWait()
         except Exception:
