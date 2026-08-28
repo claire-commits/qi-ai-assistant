@@ -48,11 +48,65 @@ class MemoryStore:
         return "Saved notes:\n- " + "\n- ".join(self.notes)
 
 
+class ReminderStore:
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self.reminders: list[dict[str, str | bool]] = []
+        self._load()
+
+    def _load(self) -> None:
+        if self.path.exists():
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    self.reminders = [item for item in data if isinstance(item, dict)]
+            except (json.JSONDecodeError, OSError):
+                self.reminders = []
+
+    def _save(self) -> None:
+        self.path.write_text(json.dumps(self.reminders, indent=2), encoding="utf-8")
+
+    def add(self, text: str, due_at: dt.datetime) -> str:
+        self.reminders.append({
+            "text": text.strip(),
+            "due_at": due_at.isoformat(timespec="minutes"),
+            "done": False,
+        })
+        self._save()
+        return f"Reminder saved for {due_at:%A, %d %B at %H:%M}: {text.strip()}"
+
+    def list_pending(self) -> str:
+        pending = [item for item in self.reminders if not item.get("done", False)]
+        if not pending:
+            return "You do not have any pending reminders."
+        lines = []
+        for item in pending:
+            due_at = dt.datetime.fromisoformat(str(item["due_at"]))
+            lines.append(f"- {due_at:%d %b %Y %H:%M}: {item['text']}")
+        return "Pending reminders:\n" + "\n".join(lines)
+
+    def due(self) -> list[str]:
+        now = dt.datetime.now()
+        due_text = []
+        changed = False
+        for item in self.reminders:
+            if item.get("done", False):
+                continue
+            if dt.datetime.fromisoformat(str(item["due_at"])) <= now:
+                due_text.append(str(item["text"]))
+                item["done"] = True
+                changed = True
+        if changed:
+            self._save()
+        return due_text
+
+
 class Assistant:
     def __init__(self, name: str | None = None) -> None:
         self.name = name or os.getenv("QI_NAME", "Qi")
         self.voice_enabled = os.getenv("QI_VOICE_ENABLED", "false").lower() == "true"
         self.memory = MemoryStore(Path(__file__).with_name("assistant_memory.json"))
+        self.reminders = ReminderStore(Path(__file__).with_name("assistant_reminders.json"))
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.client = self._build_client()
@@ -177,6 +231,17 @@ class Assistant:
         except (requests.RequestException, ET.ParseError):
             return f"I could not reach the {label} news feed right now."
 
+    def _reminder_response(self, prompt: str) -> str:
+        match = re.match(r"remind me to (.+?) at (.+)$", prompt, re.IGNORECASE)
+        if not match:
+            return "Use this format: remind me to call Mum at 2026-08-29 18:30"
+        text, due_text = match.groups()
+        try:
+            due_at = dt.datetime.fromisoformat(due_text.strip())
+        except ValueError:
+            return "I could not understand that date. Use YYYY-MM-DD HH:MM."
+        return self.reminders.add(text, due_at)
+
     def _local_response(self, user_input: str) -> str:
         text = user_input.strip()
         lower = text.lower()
@@ -208,6 +273,12 @@ class Assistant:
 
         if lower.startswith("calculate "):
             return self._calculate(text[10:].strip())
+
+        if lower.startswith("remind me to "):
+            return self._reminder_response(text)
+
+        if lower in {"reminders", "show reminders", "my reminders"}:
+            return self.reminders.list_pending()
 
         if lower.startswith("remember "):
             return self.memory.add(text[9:].strip())
@@ -279,6 +350,9 @@ class Assistant:
                 local="local" in lower or "aberdeen" in lower or "scotland" in lower
             )
 
+        if lower.startswith("remind me to ") or lower in {"reminders", "show reminders", "my reminders"}:
+            return self._local_response(text)
+
         local_commands = [
             "remember ",
             "save ",
@@ -296,6 +370,10 @@ class Assistant:
             "what day",
             "joke",
             "calculate ",
+            "remind me to ",
+            "reminders",
+            "show reminders",
+            "my reminders",
             "plan",
             "task",
             "goal",
@@ -437,9 +515,18 @@ def run_gui() -> None:
         threading.Thread(target=work, daemon=True).start()
         return "break"
 
+    def check_reminders() -> None:
+        for reminder in assistant.reminders.due():
+            message = f"Reminder: {reminder}"
+            add_message(assistant.name, message, "qi")
+            if speak_var.get():
+                threading.Thread(target=assistant.speak, args=(message,), daemon=True).start()
+        root.after(30_000, check_reminders)
+
     send.configure(command=send_message)
     entry.bind("<Return>", send_message)
     entry.focus_set()
+    root.after(1_000, check_reminders)
     root.mainloop()
 
 
