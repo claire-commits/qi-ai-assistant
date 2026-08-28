@@ -10,6 +10,7 @@ This assistant can:
 - answer time/date questions
 - share short jokes
 - save notes locally in a JSON file
+- fetch current weather for a named location
 - use a real OpenAI-compatible API when `OPENAI_API_KEY` is present
 
 ## Step 1: create your virtual environment
@@ -81,10 +82,13 @@ You can say things like:
 - remember my project deadline is Friday
 - show notes
 - how do I build a Python app?
+- what is the weather in Aberdeen today?
 
 ## Step 5: use the local model
 
 Once Ollama is running and the model is installed, the assistant sends messages to your local model. No cloud API key is required.
+
+Weather questions use the Open-Meteo service for current conditions and do not require an API key.
 
 If you do not provide a key, the assistant still works in local mode for simple built-in commands.
 

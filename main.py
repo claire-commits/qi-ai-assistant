@@ -5,12 +5,14 @@ import ast
 import json
 import os
 import random
+import re
 import sys
 import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
 from openai import OpenAI
+import requests
 
 
 load_dotenv(Path(__file__).with_name(".env"))
@@ -96,6 +98,48 @@ class Assistant:
             return f"{expression} = {result:g}"
         except (SyntaxError, ValueError, TypeError, ZeroDivisionError):
             return "I could not calculate that. Try something like: calculate 12 * (3 + 4)."
+
+    def _weather_response(self, prompt: str) -> str:
+        match = re.search(r"\b(?:in|for|near)\s+(.+?)(?:\s+today|\s+now)?[?.!]*$", prompt, re.IGNORECASE)
+        city = match.group(1).strip() if match else "Aberdeen"
+        try:
+            location = requests.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": city, "count": 1, "language": "en", "format": "json"},
+                timeout=10,
+            ).json()
+            results = location.get("results", [])
+            if not results:
+                return f"I could not find a location called {city}."
+
+            place = results[0]
+            current = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": place["latitude"],
+                    "longitude": place["longitude"],
+                    "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m",
+                    "temperature_unit": "celsius",
+                    "wind_speed_unit": "kmh",
+                    "timezone": "auto",
+                },
+                timeout=10,
+            ).json()["current"]
+            descriptions = {
+                0: "clear skies", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
+                45: "foggy", 48: "freezing fog", 51: "light drizzle", 53: "drizzle",
+                55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain",
+                71: "light snow", 73: "snow", 75: "heavy snow", 80: "light showers",
+                81: "showers", 82: "heavy showers", 95: "thunderstorms",
+            }
+            condition = descriptions.get(current["weather_code"], "mixed conditions")
+            return (
+                f"In {place['name']} today: {current['temperature_2m']}°C, feels like "
+                f"{current['apparent_temperature']}°C with {condition}. "
+                f"Wind is {current['wind_speed_10m']} km/h."
+            )
+        except (requests.RequestException, KeyError, TypeError, ValueError):
+            return "I could not reach the live weather service right now."
 
     def _local_response(self, user_input: str) -> str:
         text = user_input.strip()
@@ -190,6 +234,9 @@ class Assistant:
         lower = text.lower()
         if lower in {"exit", "quit", "bye", "goodbye"}:
             return "Goodbye! I'll be here when you want to keep building."
+
+        if "weather" in lower:
+            return self._weather_response(text)
 
         local_commands = [
             "remember ",
