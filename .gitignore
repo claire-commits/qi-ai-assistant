@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+assistant_memory.json
+.env
+.venv/
