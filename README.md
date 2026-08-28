@@ -37,7 +37,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Step 3: add your API key
+## Step 3: configure Ollama
 
 Copy the example file and fill in your real key:
 
@@ -51,21 +51,27 @@ Or on macOS/Linux:
 cp .env.example .env
 ```
 
-Then update `.env`:
+Update `.env` for your local Ollama model:
 
 ```env
-OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_API_KEY=local
+OPENAI_MODEL=llama3.1:8b
+OPENAI_BASE_URL=http://localhost:11434/v1
 ```
 
-You can also point `OPENAI_BASE_URL` to a compatible provider, such as OpenRouter or a local OpenAI-compatible server.
+Use a model installed on your computer. Check with `ollama list`, or download one with:
+
+```powershell
+ollama pull llama3.1:8b
+```
 
 ## Step 4: run the app
 
 ```bash
 python main.py
 ```
+
+Running `python main.py` opens the desktop chat UI. Use `python main.py --cli` for the terminal version.
 
 You can say things like:
 
@@ -76,9 +82,9 @@ You can say things like:
 - show notes
 - how do I build a Python app?
 
-## Step 5: use the real API
+## Step 5: use the local model
 
-Once the key is configured, the assistant will send your message to the model and return a real AI response instead of the built-in local fallback.
+Once Ollama is running and the model is installed, the assistant sends messages to your local model. No cloud API key is required.
 
 If you do not provide a key, the assistant still works in local mode for simple built-in commands.
 
